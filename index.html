@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Weapon Ascension - Tiny Swords World Engine</title>
+    <title>Weapon Ascension - RPG</title>
     <link rel="icon" href="UI Elements/UI Elements/Icons/Icon_01.png" />
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <style>
@@ -20,182 +20,194 @@
   </head>
   <body>
     <script>
-      // --- GLOBAL PERSISTENT PROGRESSION ---
-      const globalPlayerData = {
-        health: 200,
-        maxHealth: 200,
-        weaponLevel: 1,
-        weaponXP: 0,
-        xpToNextLevel: 30,
-        baseSpeed: 220,
-        attackRange: 85,
-        dummyHits: 0,
-      };
+      const STORAGE_KEY = 'weapon-ascension-save-v1';
 
+      const WEAPON_LIST = [
+        { id: 'Sword', name: 'Sword', baseDamage: 12, baseSpeed: 220, baseRange: 80, baseCrit: 0.08, baseCombo: 2, masteryMultiplier: 0.05, description: 'Fast close combat with fluid combos.' },
+        { id: 'Bow', name: 'Bow', baseDamage: 10, baseSpeed: 200, baseRange: 240, baseCrit: 0.12, baseCombo: 1, masteryMultiplier: 0.04, description: 'Long range shots with precision hits.' },
+        { id: 'Spear', name: 'Spear', baseDamage: 14, baseSpeed: 200, baseRange: 120, baseCrit: 0.06, baseCombo: 2, masteryMultiplier: 0.06, description: 'Piercing reach that dominates melee space.' },
+        { id: 'Daggers', name: 'Daggers', baseDamage: 9, baseSpeed: 240, baseRange: 70, baseCrit: 0.16, baseCombo: 3, masteryMultiplier: 0.05, description: 'Rapid strikes and deadly critical bursts.' },
+        { id: 'Greatsword', name: 'Greatsword', baseDamage: 18, baseSpeed: 180, baseRange: 90, baseCrit: 0.05, baseCombo: 1, masteryMultiplier: 0.07, description: 'Heavy power swings with huge impact.' },
+        { id: 'Magic Staff', name: 'Magic Staff', baseDamage: 11, baseSpeed: 210, baseRange: 220, baseCrit: 0.1, baseCombo: 1, masteryMultiplier: 0.05, description: 'Elemental blasts and magical control.' },
+      ];
+
+      const ENEMY_TYPES = [
+        { id: 'Goblin', tint: 0x2d8a2d, health: 8, damage: 6, speed: 90, range: 40, goldMin: 5, goldMax: 12, material: 'Goblin Fang' },
+        { id: 'Wolf', tint: 0x9b59b6, health: 10, damage: 8, speed: 110, range: 35, goldMin: 6, goldMax: 14, material: 'Wolf Hide' },
+        { id: 'Skeleton', tint: 0xffffff, health: 12, damage: 10, speed: 80, range: 45, goldMin: 8, goldMax: 18, material: 'Bone Shard' },
+        { id: 'Orc', tint: 0xff8c00, health: 16, damage: 12, speed: 70, range: 40, goldMin: 10, goldMax: 22, material: 'Orc Tooth' },
+        { id: 'Slime', tint: 0x00ffff, health: 6, damage: 4, speed: 60, range: 30, goldMin: 3, goldMax: 9, material: 'Slime Gel' },
+      ];
+
+      let saveData = null;
+      let hudText = null;
+      let messageText = null;
+      let currentAreaText = null;
       let animsCreated = false;
-      function createGlobalAnims(scene) {
+
+      function loadSaveData() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+          return {
+            currentWeapon: 'Sword',
+            gold: 50,
+            currentHealth: 200,
+            maxHealth: 200,
+            weaponProgress: WEAPON_LIST.reduce((acc, weapon) => {
+              acc[weapon.id] = { level: 1, xp: 0 };
+              return acc;
+            }, {}),
+            inventory: { potions: 2, materials: {} },
+            unlockedAreas: ['Training Grounds', 'Town'],
+            enlightenmentUnlocked: false,
+          };
+        }
+        try {
+          const parsed = JSON.parse(raw);
+          parsed.weaponProgress = parsed.weaponProgress || {};
+          WEAPON_LIST.forEach((weapon) => {
+            if (!parsed.weaponProgress[weapon.id]) {
+              parsed.weaponProgress[weapon.id] = { level: 1, xp: 0 };
+            }
+          });
+          parsed.currentWeapon = parsed.currentWeapon || 'Sword';
+          parsed.currentHealth = parsed.currentHealth || 200;
+          parsed.maxHealth = parsed.maxHealth || 200;
+          parsed.gold = parsed.gold || 0;
+          parsed.inventory = parsed.inventory || { potions: 2, materials: {} };
+          parsed.unlockedAreas = parsed.unlockedAreas || ['Training Grounds', 'Town'];
+          parsed.enlightenmentUnlocked = parsed.enlightenmentUnlocked || false;
+          return parsed;
+        } catch {
+          localStorage.removeItem(STORAGE_KEY);
+          return loadSaveData();
+        }
+      }
+
+      function saveGame() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+      }
+
+      function getWeaponDefinition(id) {
+        return WEAPON_LIST.find((weapon) => weapon.id === id) || WEAPON_LIST[0];
+      }
+
+      function getWeaponProgress(id) {
+        return saveData.weaponProgress[id] || { level: 1, xp: 0 };
+      }
+
+      function getCurrentWeapon() {
+        return getWeaponDefinition(saveData.currentWeapon);
+      }
+
+      function getWeaponStats() {
+        const weapon = getCurrentWeapon();
+        const progress = getWeaponProgress(weapon.id);
+        const levelFactor = 1 + (progress.level - 1) * weapon.masteryMultiplier;
+        return {
+          id: weapon.id,
+          name: weapon.name,
+          damage: Math.round(weapon.baseDamage * levelFactor),
+          attackSpeed: Math.max(120, Math.round(weapon.baseSpeed - (progress.level - 1) * 3)),
+          range: Math.round(weapon.baseRange + progress.level * 1.4),
+          critChance: Math.min(0.35, weapon.baseCrit + progress.level * 0.002),
+          comboLimit: Math.min(5, weapon.baseCombo + Math.floor(progress.level / 20)),
+          level: progress.level,
+          xp: progress.xp,
+          xpToNext: 100 + progress.level * 20,
+          description: weapon.description,
+        };
+      }
+
+      function awardMasteryXP(amount) {
+        const weapon = getCurrentWeapon();
+        const progress = getWeaponProgress(weapon.id);
+        progress.xp += amount;
+        const threshold = 100 + progress.level * 20;
+        if (progress.xp >= threshold && progress.level < 100) {
+          progress.xp -= threshold;
+          progress.level += 1;
+          saveData.maxHealth += 5;
+          saveData.currentHealth = Math.min(saveData.currentHealth + 20, saveData.maxHealth);
+          showMessage(`${weapon.name} Mastery increased to ${progress.level}!`, '#88ff88');
+          if (progress.level === 100) {
+            saveData.enlightenmentUnlocked = true;
+            showMessage('Enlightenment Trials unlocked!', '#ffdd55');
+          }
+        }
+        saveGame();
+      }
+
+      function createGlobalAnimations(scene) {
         if (animsCreated) return;
-        scene.anims.create({
-          key: 'hero_idle',
-          frames: scene.anims.generateFrameNumbers('warrior_idle', {
-            start: 0,
-            end: 5,
-          }),
-          frameRate: 10,
-          repeat: -1,
-        });
-        scene.anims.create({
-          key: 'hero_run',
-          frames: scene.anims.generateFrameNumbers('warrior_run', {
-            start: 0,
-            end: 5,
-          }),
-          frameRate: 12,
-          repeat: -1,
-        });
-        scene.anims.create({
-          key: 'hero_attack1',
-          frames: scene.anims.generateFrameNumbers('warrior_attack1', {
-            start: 0,
-            end: 5,
-          }),
-          frameRate: 16,
-          repeat: 0,
-        });
-        scene.anims.create({
-          key: 'hero_attack2',
-          frames: scene.anims.generateFrameNumbers('warrior_attack2', {
-            start: 0,
-            end: 3,
-          }),
-          frameRate: 14,
-          repeat: 0,
-        });
-        scene.anims.create({
-          key: 'hero_guard',
-          frames: scene.anims.generateFrameNumbers('warrior_guard', {
-            start: 0,
-            end: 2,
-          }),
-          frameRate: 8,
-          repeat: -1,
-        });
-        scene.anims.create({
-          key: 'enemy_run',
-          frames: scene.anims.generateFrameNumbers('enemy_run', {
-            start: 0,
-            end: 5,
-          }),
-          frameRate: 12,
-          repeat: -1,
-        });
-        scene.anims.create({
-          key: 'enemy_idle',
-          frames: scene.anims.generateFrameNumbers('enemy_idle', {
-            start: 0,
-            end: 5,
-          }),
-          frameRate: 8,
-          repeat: -1,
-        });
+        scene.anims.create({ key: 'hero_idle', frames: scene.anims.generateFrameNumbers('warrior_idle', { start: 0, end: 5 }), frameRate: 10, repeat: -1 });
+        scene.anims.create({ key: 'hero_run', frames: scene.anims.generateFrameNumbers('warrior_run', { start: 0, end: 5 }), frameRate: 12, repeat: -1 });
+        scene.anims.create({ key: 'hero_attack1', frames: scene.anims.generateFrameNumbers('warrior_attack1', { start: 0, end: 5 }), frameRate: 14, repeat: 0 });
+        scene.anims.create({ key: 'hero_attack2', frames: scene.anims.generateFrameNumbers('warrior_attack2', { start: 0, end: 3 }), frameRate: 14, repeat: 0 });
+        scene.anims.create({ key: 'hero_guard', frames: scene.anims.generateFrameNumbers('warrior_guard', { start: 0, end: 2 }), frameRate: 8, repeat: -1 });
+        scene.anims.create({ key: 'enemy_run', frames: scene.anims.generateFrameNumbers('enemy_run', { start: 0, end: 5 }), frameRate: 12, repeat: -1 });
+        scene.anims.create({ key: 'enemy_idle', frames: scene.anims.generateFrameNumbers('enemy_idle', { start: 0, end: 5 }), frameRate: 8, repeat: -1 });
         animsCreated = true;
       }
 
-      let hudText;
-      let combatLogText;
-      function createGlobalUI(scene, infoMessage) {
-        hudText = scene.add
-          .text(25, 25, '', {
-            font: '16px Courier New',
-            fill: '#ffffff',
-            backgroundColor: '#000000bb',
-            padding: 8,
-          })
-          .setScrollFactor(0)
-          .setDepth(200);
-        combatLogText = scene.add
-          .text(25, 600, infoMessage, {
-            font: '14px Courier New',
-            fill: '#ffcc00',
-            backgroundColor: '#000000aa',
-            padding: 4,
-          })
-          .setScrollFactor(0)
-          .setDepth(200);
-        updateGlobalHUD();
-      }
-      function updateGlobalHUD() {
-        if (hudText) {
-          hudText.setText(
-            `HP: ${Math.floor(globalPlayerData.health)}/${
-              globalPlayerData.maxHealth
-            } | MASTERY LVL: ${globalPlayerData.weaponLevel} | XP: ${
-              globalPlayerData.weaponXP
-            }/${globalPlayerData.xpToNextLevel} | DUMMY HITS: ${
-              globalPlayerData.dummyHits
-            }`
-          );
-        }
-      }
-      function showGlobalLog(message, color = '#ffcc00') {
-        if (combatLogText) {
-          combatLogText.setText(message);
-          combatLogText.setFill(color);
-        }
+      function createButton(scene, x, y, label, callback, width = 500) {
+        const bg = scene.add.rectangle(x, y, width, 40, 0x222222).setStrokeStyle(2, 0xffffff).setInteractive({ useHandCursor: true });
+        const txt = scene.add.text(x, y, label, { font: '16px Courier New', fill: '#ffffff', wordWrap: { width: width - 20 } }).setOrigin(0.5);
+        bg.on('pointerover', () => bg.setFillStyle(0x555555));
+        bg.on('pointerout', () => bg.setFillStyle(0x222222));
+        bg.on('pointerdown', callback);
+        return { bg, txt };
       }
 
-      // Global Core Input + Physics Engine Loop
-      function handlePlayerInputAndCombat(
-        scene,
-        player,
-        playerShadow,
-        controls,
-        targetObjects,
-        onHitCallback
-      ) {
-        if (globalPlayerData.health <= 0) {
-          player.setVelocity(0);
-          player.setTint(0xff3333);
-          playerShadow.setAlpha(0);
-          showGlobalLog(
-            'GAME OVER! Refresh your preview window to restart.',
-            '#ff0000'
-          );
-          return;
-        }
+      function createHUD(scene) {
+        hudText = scene.add.text(24, 24, '', { font: '16px Courier New', fill: '#ffffff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 } }).setDepth(1000);
+        currentAreaText = scene.add.text(24, 520, '', { font: '16px Courier New', fill: '#88ccff', backgroundColor: '#000000cc', padding: { x: 10, y: 6 } }).setDepth(1000);
+        messageText = scene.add.text(24, 560, '', { font: '16px Courier New', fill: '#ffdd55', backgroundColor: '#000000cc', padding: { x: 10, y: 6 } }).setDepth(1000);
+        updateHUD();
+      }
 
-        playerShadow.x = player.x;
-        playerShadow.y = player.y + 35;
+      function updateHUD(message) {
+        if (!hudText) return;
+        const weapon = getCurrentWeapon();
+        const progress = getWeaponProgress(weapon.id);
+        hudText.setText([`Weapon: ${weapon.name}   Mastery: ${progress.level}`, `XP: ${progress.xp}/${100 + progress.level * 20}   Gold: ${saveData.gold}`, `HP: ${Math.floor(saveData.currentHealth)}/${saveData.maxHealth}`]);
+        if (message) showMessage(message);
+      }
 
-        let currentSpeed = globalPlayerData.baseSpeed;
+      function showMessage(text, color = '#ffdd55', duration = 2200) {
+        if (!messageText) return;
+        messageText.setText(text);
+        messageText.setStyle({ fill: color });
+        if (duration > 0) setTimeout(() => { if (messageText) messageText.setText(''); }, duration);
+      }
+
+      function handlePlayerInput(scene, targets, onHit) {
+        const stats = getWeaponStats();
+        const player = scene.player;
+        const shadow = scene.playerShadow;
+        const controls = scene.controls;
+        shadow.x = player.x;
+        shadow.y = player.y + 35;
         player.setVelocity(0);
+        const speed = Math.max(140, stats.attackSpeed * 0.75);
 
         if (controls.guard.isDown && !scene.isAttacking) {
           scene.isGuarding = true;
           player.play('hero_guard', true);
-          currentSpeed = globalPlayerData.baseSpeed * 0.35;
         } else {
           scene.isGuarding = false;
         }
 
         if (scene.isAttacking) {
-          if (!scene.hasDamagedThisSwing) {
-            targetObjects.forEach((obj) => {
-              if (!obj.active) return;
-              let dist = Phaser.Math.Distance.Between(
-                player.x,
-                player.y,
-                obj.x,
-                obj.y
-              );
-              if (dist < globalPlayerData.attackRange) {
-                let isToLeft = obj.x < player.x;
-                if (
-                  (player.flipX && isToLeft) ||
-                  (!player.flipX && !isToLeft)
-                ) {
-                  scene.hasDamagedThisSwing = true;
-                  onHitCallback(obj);
+          if (!scene.hasHit) {
+            targets.forEach((target) => {
+              if (!target.active) return;
+              const dist = Phaser.Math.Distance.Between(player.x, player.y, target.x, target.y);
+              if (dist <= stats.range) {
+                const isToLeft = target.x < player.x;
+                if ((player.flipX && isToLeft) || (!player.flipX && !isToLeft)) {
+                  scene.hasHit = true;
+                  onHit(target);
                 }
               }
             });
@@ -203,495 +215,225 @@
           return;
         }
 
-        if (
-          Phaser.Input.Keyboard.JustDown(controls.space) &&
-          !scene.isGuarding
-        ) {
+        if (Phaser.Input.Keyboard.JustDown(controls.space) && !scene.isGuarding) {
           scene.isAttacking = true;
-          player.setVelocity(0);
+          scene.hasHit = false;
           player.play(`hero_attack${scene.currentCombo}`, true);
           return;
         }
 
         let moving = false;
-        if (controls.cursors.left.isDown) {
-          player.setVelocityX(-currentSpeed);
-          player.setFlipX(true);
-          moving = true;
-        } else if (controls.cursors.right.isDown) {
-          player.setVelocityX(currentSpeed);
-          player.setFlipX(false);
-          moving = true;
-        }
-        if (controls.cursors.up.isDown) {
-          player.setVelocityY(-currentSpeed);
-          moving = true;
-        } else if (controls.cursors.down.isDown) {
-          player.setVelocityY(currentSpeed);
-          moving = true;
-        }
-
-        if (!scene.isGuarding) {
-          if (moving) player.play('hero_run', true);
-          else player.play('hero_idle', true);
-        }
+        if (controls.cursors.left.isDown) { player.setVelocityX(-speed); player.setFlipX(true); moving = true; }
+        else if (controls.cursors.right.isDown) { player.setVelocityX(speed); player.setFlipX(false); moving = true; }
+        if (controls.cursors.up.isDown) { player.setVelocityY(-speed); moving = true; }
+        else if (controls.cursors.down.isDown) { player.setVelocityY(speed); moving = true; }
+        if (!scene.isGuarding) { if (moving) player.play('hero_run', true); else player.play('hero_idle', true); }
       }
 
-      function processXPGain(amount, scene) {
-        globalPlayerData.weaponXP += amount;
-        if (globalPlayerData.weaponXP >= globalPlayerData.xpToNextLevel) {
-          globalPlayerData.weaponXP -= globalPlayerData.xpToNextLevel;
-          globalPlayerData.weaponLevel++;
-          globalPlayerData.xpToNextLevel = Math.floor(
-            globalPlayerData.xpToNextLevel * 1.5
-          );
-          globalPlayerData.baseSpeed += 12;
-          globalPlayerData.attackRange += 8;
-          showGlobalLog(
-            `WEAPON ASCENSION! Level ${globalPlayerData.weaponLevel} Achieved! Speed/Range Buffed!`,
-            '#00ff00'
-          );
-        }
-        updateGlobalHUD();
-      }
-
-      // ==========================================
-      // --- SCENE 1: SAFE TOWN & TRAINING CAMP ---
-      // ==========================================
-      class SafeTown extends Phaser.Scene {
-        constructor() {
-          super('SafeTown');
-        }
-
+      class BootScene extends Phaser.Scene {
+        constructor() { super('BootScene'); }
         preload() {
-          this.load.spritesheet('warrior_idle', 'Yellow Units/Warrior/Warrior_Idle.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('warrior_run', 'Yellow Units/Warrior/Warrior_Run.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('warrior_attack1', 'Yellow Units/Warrior/Warrior_Attack1.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('warrior_attack2', 'Yellow Units/Warrior/Warrior_Attack2.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('warrior_guard', 'Yellow Units/Warrior/Warrior_Guard.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('enemy_run', 'Red Units/Warrior/Warrior_Run.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('enemy_idle', 'Red Units/Warrior/Warrior_Idle.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-
-          // Load Tiny Swords pack sheets directly
+          this.load.spritesheet('warrior_idle', 'Yellow Units/Warrior/Warrior_Idle.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('warrior_run', 'Yellow Units/Warrior/Warrior_Run.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('warrior_attack1', 'Yellow Units/Warrior/Warrior_Attack1.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('warrior_attack2', 'Yellow Units/Warrior/Warrior_Attack2.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('warrior_guard', 'Yellow Units/Warrior/Warrior_Guard.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('enemy_run', 'Red Units/Warrior/Warrior_Run.png', { frameWidth: 192, frameHeight: 192 });
+          this.load.spritesheet('enemy_idle', 'Red Units/Warrior/Warrior_Idle.png', { frameWidth: 192, frameHeight: 192 });
           this.load.image('water_bg', 'Terrain/Tileset/Water Background color.png');
           this.load.image('tilemap_lush', 'Terrain/Tileset/Tilemap_color1.png');
+          this.load.image('tilemap_desert', 'Terrain/Tileset/Tilemap_color2.png');
           this.load.image('shadow', 'Terrain/Tileset/Shadow.png');
+          this.load.image('camp_castle', 'Buildings/Blue Buildings/Castle.png');
           this.load.image('camp_barracks', 'Buildings/Blue Buildings/Barracks.png');
           this.load.image('camp_house1', 'Buildings/Blue Buildings/House1.png');
-          this.load.image('camp_castle', 'Buildings/Blue Buildings/Castle.png');
+          this.load.image('town_house2', 'Buildings/Blue Buildings/House2.png');
           this.load.image('bush1', 'Terrain/Decorations/Bushes/Bushe1.png');
           this.load.image('bush2', 'Terrain/Decorations/Bushes/Bushe2.png');
           this.load.image('rock1', 'Terrain/Decorations/Rocks/Rock1.png');
-          this.load.image('tree1', 'Terrain/Resources/Wood/Trees/Tree1.png');
+          this.load.image('rock2', 'Terrain/Decorations/Rocks/Rock2.png');
           this.load.image('cloud1', 'Terrain/Decorations/Clouds/Clouds_01.png');
+          this.load.image('cloud2', 'Terrain/Decorations/Clouds/Clouds_06.png');
           this.load.image('ui_banner', 'UI Elements/UI Elements/Banners/Banner.png');
         }
+        create() { createGlobalAnimations(this); saveData = loadSaveData(); if (!saveData.currentHealth) saveData.currentHealth = saveData.maxHealth; this.scene.start('MenuScene'); }
+      }
 
+      class MenuScene extends Phaser.Scene {
+        constructor() { super('MenuScene'); }
         create() {
-          this.isAttacking = false;
-          this.isGuarding = false;
-          this.hasDamagedThisSwing = false;
-          this.currentCombo = 1;
-          createGlobalAnims(this);
-
-          // Render Water Background
           this.add.tileSprite(416, 320, 832, 640, 'water_bg');
-          this.add.image(130, 90, 'cloud1').setScrollFactor(0.2).setAlpha(0.75).setScale(0.85);
-          this.add.image(690, 80, 'cloud1').setScrollFactor(0.17).setAlpha(0.6).setFlipX(true).setScale(0.8);
-          this.add.image(420, 26, 'ui_banner').setScrollFactor(0).setDepth(198).setScale(0.7).setAlpha(0.9);
-
-          // Render Lush Grass Island using exact pixel boundaries from Tilemap_color1
-          for (let col = 1; col < 12; col++) {
-            for (let row = 1; row < 9; row++) {
-              let grass = this.add.image(
-                col * 64 + 32,
-                row * 64 + 32,
-                'tilemap_lush'
-              );
-              grass.setCrop(64, 64, 64, 64); // Crops out the perfect Tiny Swords middle grass patch
-            }
-          }
-          this.add.image(120, 130, 'camp_castle').setScale(0.5).setDepth(30);
-          this.add.image(720, 140, 'camp_barracks').setScale(0.55).setDepth(25);
-          this.add.image(680, 520, 'camp_house1').setScale(0.45).setDepth(28);
-          [
-            { x: 80, y: 380, key: 'bush1', scale: 0.65 },
-            { x: 760, y: 360, key: 'bush2', scale: 0.65 },
-            { x: 320, y: 210, key: 'tree1', scale: 0.7 },
-            { x: 515, y: 190, key: 'tree1', scale: 0.7 },
-            { x: 420, y: 520, key: 'rock1', scale: 0.95 },
-          ].forEach((item) => {
-            let deco = this.add.image(item.x, item.y, item.key).setScale(item.scale);
-            deco.setDepth(item.y * 0.15);
+          this.add.image(120, 100, 'cloud1').setAlpha(0.75).setScale(0.8);
+          this.add.image(720, 110, 'cloud2').setAlpha(0.6).setScale(0.9).setFlipX(true);
+          this.add.image(660, 450, 'camp_castle').setScale(0.45).setDepth(10);
+          this.add.image(180, 520, 'camp_barracks').setScale(0.5).setDepth(8);
+          this.add.image(520, 520, 'camp_house1').setScale(0.4).setDepth(9);
+          this.add.text(24, 24, 'WEAPON ASCENSION MENU', { font: '32px Courier New', fill: '#ffffff' });
+          this.add.text(24, 68, 'Choose your weapon and travel to a zone.', { font: '16px Courier New', fill: '#cccccc' });
+          createHUD(this);
+          currentAreaText.setText('Area: Menu');
+          updateHUD();
+          WEAPON_LIST.forEach((weapon, index) => {
+            createButton(this, 416, 160 + index * 50, `${weapon.name} — ${weapon.description}`, () => { saveData.currentWeapon = weapon.id; saveGame(); showMessage(`${weapon.name} selected.`, '#88ff88'); updateHUD(); }, 700);
           });
-
-          // Environment Obstacles (Fences, Water bounds, and Trees)
-          this.obstacles = this.physics.add.staticGroup();
-
-          // Edge Water Barriers
-          this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
-          this.obstacles.add(this.add.rectangle(416, 608, 832, 64));
-          this.obstacles.add(this.add.rectangle(32, 320, 64, 640));
-          this.obstacles.add(this.add.rectangle(800, 320, 64, 640));
-
-          // --- DECORATING WITH TINY SWORDS TREES & PROPS ---
-          // Tiny Swords assets bundle trees directly onto layout sheets. We stamp them out using crops!
-          const treePositions = [
-            { x: 120, y: 150 },
-            { x: 120, y: 480 },
-            { x: 720, y: 150 },
-            { x: 720, y: 480 },
-          ];
-          treePositions.forEach((pos) => {
-            let treeVisual = this.add
-              .image(pos.x, pos.y, 'tilemap_lush')
-              .setDepth(pos.y);
-            // Crops a standard large green tree cluster from Tilemap_color1
-            treeVisual.setCrop(0, 256, 128, 192);
-
-            // Add a solid physics hit box at the base of the trunk
-            let treeTrunkCollider = this.add.rectangle(
-              pos.x + 64,
-              pos.y + 150,
-              40,
-              40
-            );
-            this.obstacles.add(treeTrunkCollider);
-          });
-
-          // Mushroom Decor Stamps
-          for (let i = 0; i < 5; i++) {
-            let mushX = Phaser.Math.Between(200, 600);
-            let mushY = Phaser.Math.Between(150, 450);
-            let mush = this.add
-              .image(mushX, mushY, 'tilemap_lush')
-              .setCrop(320, 0, 64, 64)
-              .setScale(0.7);
-          }
-
-          // --- EXTRACTING THE ACTUAL PRACTICE DUMMY ---
-          // Tiny Swords places interactive props like signs and training targets towards the lower-right quadrant
-          this.dummyObj = this.physics.add.staticImage(
-            320,
-            320,
-            'tilemap_lush'
-          );
-          this.dummyObj.setCrop(320, 448, 64, 64); // Precision coordinate matching the Training Dummy in Tiny Swords pack!
-          this.dummyObj.setSize(44, 44).setOffset(10, 10);
-
-          // Teleportation Gate to Outside World
-          this.portalObj = this.physics.add.staticImage(
-            620,
-            320,
-            'tilemap_lush'
-          );
-          this.portalObj.setCrop(320, 320, 64, 64); // Crops out the golden chest/portal marker
-          this.physics.add.existing(this.portalObj, true);
-
-          // Player configuration
-          this.playerShadow = this.add
-            .image(220, 320, 'shadow')
-            .setAlpha(0.45)
-            .setScale(1.2);
-          this.player = this.physics.add.sprite(220, 320, 'warrior_idle');
-          this.player
-            .setCollideWorldBounds(true)
-            .setSize(40, 40)
-            .setOffset(76, 80)
-            .setDepth(320);
-
-          this.physics.add.collider(this.player, this.obstacles);
-
-          // Key Mappings
-          this.controls = {
-            cursors: this.input.keyboard.createCursorKeys(),
-            space: this.input.keyboard.addKey(
-              Phaser.Input.Keyboard.KeyCodes.SPACE
-            ),
-            guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
-          };
-
-          this.player.on('animationcomplete-attack1', () => {
-            this.isAttacking = false;
-            this.hasDamagedThisSwing = false;
-            this.currentCombo = 2;
-          });
-          this.player.on('animationcomplete-attack2', () => {
-            this.isAttacking = false;
-            this.hasDamagedThisSwing = false;
-            this.currentCombo = 1;
-          });
-
-          // Trigger scene transfer
-          this.physics.add.overlap(this.player, this.portalObj, () => {
-            showGlobalLog(
-              'Passing into the hazardous Outside Wilderness...',
-              '#ffcc00'
-            );
-            this.scene.start('BattleWorld');
-          });
-
-          createGlobalUI(
-            this,
-            'SAFE TRAINING GROUND: Practice your sword slashes on the Tiny Swords Dummy! Enter the golden floor marker to venture out.'
-          );
-        }
-
-        update(time, delta) {
-          // Safe Zone Passive Rest Healing
-          if (globalPlayerData.health < globalPlayerData.maxHealth) {
-            globalPlayerData.health += 0.08;
-            updateGlobalHUD();
-          }
-
-          // Dynamically adjust player and tree rendering depths so the character walks behind leaves naturally!
-          this.player.setDepth(this.player.y);
-
-          handlePlayerInputAndCombat(
-            this,
-            this.player,
-            this.playerShadow,
-            this.controls,
-            [this.dummyObj],
-            (dummy) => {
-              globalPlayerData.dummyHits++;
-              processXPGain(2, this);
-              showGlobalLog(
-                `HIT! Practicing weapon loops (+2 XP). Total Dummy Hits: ${globalPlayerData.dummyHits}`,
-                '#ffffff'
-              );
-              this.dummyObj.setTint(0xff8888);
-              this.time.delayedCall(120, () => this.dummyObj.clearTint());
-            }
-          );
+          createButton(this, 140, 520, 'Training Grounds', () => this.scene.start('TrainingScene'));
+          createButton(this, 340, 520, 'Town', () => this.scene.start('TownScene'));
+          createButton(this, 540, 520, 'Wilds', () => this.scene.start('WildsScene'));
+          createButton(this, 740, 520, 'Save Game', () => { saveGame(); showMessage('Progress saved.', '#88ff88'); });
         }
       }
 
-      // ==========================================
-      // --- SCENE 2: OUTSIDE WORLD (BATTLE) -----
-      // ==========================================
-      class BattleWorld extends Phaser.Scene {
-        constructor() {
-          super('BattleWorld');
-        }
-
-        preload() {
-          // Load an alternate seasonal biome sheet for the dangerous wildlands
-          this.load.image('tilemap_desert', 'Terrain/Tileset/Tilemap_color2.png');
-          this.load.image('water_bg', 'Terrain/Tileset/Water Background color.png');
-          this.load.image('cloud2', 'Terrain/Decorations/Clouds/Clouds_06.png');
-          this.load.image('rock2', 'Terrain/Decorations/Rocks/Rock2.png');
-          this.load.image('rock3', 'Terrain/Decorations/Rocks/Rock3.png');
-          this.load.image('bush1', 'Terrain/Decorations/Bushes/Bushe1.png');
-          this.load.image('ui_banner', 'UI Elements/UI Elements/Banners/Banner.png');
-          this.load.spritesheet('enemy_run', 'Red Units/Warrior/Warrior_Run.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-          this.load.spritesheet('enemy_idle', 'Red Units/Warrior/Warrior_Idle.png', {
-            frameWidth: 192,
-            frameHeight: 192,
-          });
-        }
-
+      class TrainingScene extends Phaser.Scene {
+        constructor() { super('TrainingScene'); }
         create() {
-          this.isAttacking = false;
-          this.isGuarding = false;
-          this.hasDamagedThisSwing = false;
-          this.currentCombo = 1;
-
-          // Render Red/Sand Desert Wilderness using Tilemap_color2 layout sheet
+          this.isAttacking = false; this.isGuarding = false; this.hasHit = false; this.currentCombo = 1;
           this.add.tileSprite(416, 320, 832, 640, 'water_bg');
-          this.add.image(620, 90, 'cloud2').setScrollFactor(0.18).setAlpha(0.55).setScale(0.85).setDepth(10);
-          this.add.image(160, 80, 'cloud2').setScrollFactor(0.22).setAlpha(0.6).setFlipX(true).setScale(0.74).setDepth(10);
-          for (let col = 1; col < 12; col++) {
-            for (let row = 1; row < 9; row++) {
-              let ground = this.add.image(
-                col * 64 + 32,
-                row * 64 + 32,
-                'tilemap_desert'
-              );
-              ground.setCrop(64, 64, 64, 64); // Pulls the base terrain layer
-            }
-          }
-          this.add.image(720, 520, 'rock2').setScale(0.75).setDepth(22);
-          this.add.image(520, 430, 'rock3').setScale(0.9).setDepth(24);
-          this.add.image(140, 420, 'bush1').setScale(0.7).setDepth(23);
-          this.add.image(420, 30, 'ui_banner').setScrollFactor(0).setDepth(198).setScale(0.65).setAlpha(0.85);
-
+          for (let col = 1; col < 12; col++) { for (let row = 1; row < 9; row++) { const tile = this.add.image(col * 64 + 32, row * 64 + 32, 'tilemap_lush'); tile.setCrop(64, 64, 64, 64); } }
           this.obstacles = this.physics.add.staticGroup();
           this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
           this.obstacles.add(this.add.rectangle(416, 608, 832, 64));
           this.obstacles.add(this.add.rectangle(32, 320, 64, 640));
           this.obstacles.add(this.add.rectangle(800, 320, 64, 640));
-
-          // Wilderness Dead Rocks and Scenery Obstacles
-          for (let i = 0; i < 4; i++) {
-            let rockX = Phaser.Math.Between(200, 650);
-            let rockY = Phaser.Math.Between(150, 480);
-            let rock = this.add
-              .image(rockX, rockY, 'tilemap_desert')
-              .setCrop(320, 256, 64, 64);
-
-            let rockCollider = this.add.rectangle(rockX, rockY + 10, 45, 35);
-            this.obstacles.add(rockCollider);
-          }
-
-          // Escape Gateway back to Town
-          this.portalObj = this.physics.add.staticImage(
-            150,
-            320,
-            'tilemap_desert'
-          );
-          this.portalObj.setCrop(320, 320, 64, 64);
-          this.physics.add.existing(this.portalObj, true);
-
-          // Character Spawning
-          this.playerShadow = this.add
-            .image(240, 320, 'shadow')
-            .setAlpha(0.45)
-            .setScale(1.2);
-          this.player = this.physics.add.sprite(240, 320, 'warrior_idle');
-          this.player
-            .setCollideWorldBounds(true)
-            .setSize(40, 40)
-            .setOffset(76, 80);
+          this.add.image(420, 220, 'bush1').setScale(0.65).setDepth(5);
+          this.add.image(540, 150, 'rock1').setScale(0.85).setDepth(5);
+          this.add.image(220, 500, 'rock1').setScale(0.8).setDepth(5);
+          this.trainingDummy = this.physics.add.staticImage(540, 360, 'tilemap_lush');
+          this.trainingDummy.setCrop(320, 448, 64, 64);
+          this.trainingDummy.setSize(44, 44).setOffset(10, 10);
+          this.portal = this.physics.add.staticImage(110, 520, 'tilemap_lush');
+          this.portal.setCrop(320, 320, 64, 64);
+          this.physics.add.existing(this.portal, true);
+          this.playerShadow = this.add.image(220, 320, 'shadow').setAlpha(0.45).setScale(1.2);
+          this.player = this.physics.add.sprite(220, 320, 'warrior_idle').setCollideWorldBounds(true).setSize(40, 40).setOffset(76, 80).setDepth(300);
           this.physics.add.collider(this.player, this.obstacles);
+          this.physics.add.overlap(this.player, this.portal, () => { this.scene.start('MenuScene'); showMessage('Returning to the town menu.'); });
+          this.controls = { cursors: this.input.keyboard.createCursorKeys(), space: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE), guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C) };
+          this.player.on('animationcomplete-hero_attack1', () => { this.isAttacking = false; this.currentCombo = 2; this.hasHit = false; });
+          this.player.on('animationcomplete-hero_attack2', () => { this.isAttacking = false; this.currentCombo = 1; this.hasHit = false; });
+          createHUD(this);
+          currentAreaText.setText('Area: Training Grounds');
+          updateHUD('No enemy damage here. Train at the dummy.');
+          createButton(this, 740, 560, 'Return', () => this.scene.start('MenuScene'), 160);
+        }
+        update() {
+          handlePlayerInput(this, [this.trainingDummy], (dummy) => {
+            awardMasteryXP(4); saveData.gold += 1; saveGame(); showMessage('Training strike! +1 gold.'); dummy.setTint(0x88ff88); this.time.delayedCall(120, () => dummy.clearTint());
+          });
+          this.player.setDepth(this.player.y);
+          updateHUD();
+        }
+      }
 
-          // Enemy System Setup
+      class TownScene extends Phaser.Scene {
+        constructor() { super('TownScene'); }
+        create() {
+          this.isAttacking = false; this.isGuarding = false; this.hasHit = false; this.currentCombo = 1;
+          this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+          for (let col = 1; col < 12; col++) { for (let row = 1; row < 9; row++) { const tile = this.add.image(col * 64 + 32, row * 64 + 32, 'tilemap_lush'); tile.setCrop(64, 64, 64, 64); } }
+          this.add.image(150, 180, 'camp_house1').setScale(0.65).setDepth(5);
+          this.add.image(680, 210, 'town_house2').setScale(0.6).setDepth(5);
+          this.add.image(420, 120, 'cloud1').setAlpha(0.65).setScale(0.85);
+          this.playerShadow = this.add.image(240, 320, 'shadow').setAlpha(0.45).setScale(1.2);
+          this.player = this.physics.add.sprite(240, 320, 'warrior_idle').setCollideWorldBounds(true).setSize(40, 40).setOffset(76, 80).setDepth(300);
+          this.controls = { cursors: this.input.keyboard.createCursorKeys(), space: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE), guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C) };
+          this.player.on('animationcomplete-hero_attack1', () => { this.isAttacking = false; this.currentCombo = 2; this.hasHit = false; });
+          this.player.on('animationcomplete-hero_attack2', () => { this.isAttacking = false; this.currentCombo = 1; this.hasHit = false; });
+          createHUD(this);
+          currentAreaText.setText('Area: Town');
+          updateHUD('Visit the shop and manage your inventory.');
+          createButton(this, 660, 180, 'Buy Potion (12G)', () => { if (saveData.gold >= 12) { saveData.gold -= 12; saveData.inventory.potions += 1; saveGame(); showMessage('Purchased potion.'); } else showMessage('Not enough gold.', '#ff6666'); updateHUD(); });
+          createButton(this, 660, 240, 'Sell Materials', () => { const materials = saveData.inventory.materials; let total = 0; Object.keys(materials).forEach((mat) => { total += materials[mat] * 5; }); if (total > 0) { saveData.gold += total; saveData.inventory.materials = {}; saveGame(); showMessage(`Sold materials for ${total} gold.`); } else { showMessage('No materials to sell.', '#ff6666'); } updateHUD(); });
+          createButton(this, 660, 300, 'Heal at Inn', () => { saveData.currentHealth = saveData.maxHealth; saveGame(); showMessage('Fully healed at the inn.'); updateHUD(); });
+          createButton(this, 660, 360, 'Return', () => this.scene.start('MenuScene'), 160);
+        }
+        update() { handlePlayerInput(this, [], () => {}); this.player.setDepth(this.player.y); }
+      }
+
+      class WildsScene extends Phaser.Scene {
+        constructor() { super('WildsScene'); }
+        create() {
+          this.isAttacking = false; this.isGuarding = false; this.hasHit = false; this.currentCombo = 1;
+          this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+          for (let col = 1; col < 12; col++) { for (let row = 1; row < 9; row++) { const tile = this.add.image(col * 64 + 32, row * 64 + 32, 'tilemap_desert'); tile.setCrop(64, 64, 64, 64); } }
+          this.add.image(680, 120, 'cloud2').setAlpha(0.55).setScale(0.85);
+          this.add.image(150, 90, 'cloud1').setAlpha(0.45).setScale(0.85);
+          this.obstacles = this.physics.add.staticGroup();
+          this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
+          this.obstacles.add(this.add.rectangle(416, 608, 832, 64));
+          this.obstacles.add(this.add.rectangle(32, 320, 64, 640));
+          this.obstacles.add(this.add.rectangle(800, 320, 64, 640));
+          this.obstacles.add(this.add.rectangle(320, 180, 120, 30));
+          this.obstacles.add(this.add.rectangle(520, 420, 90, 35));
+          this.escapePortal = this.physics.add.staticImage(110, 520, 'tilemap_desert');
+          this.escapePortal.setCrop(320, 320, 64, 64);
+          this.physics.add.existing(this.escapePortal, true);
+          this.playerShadow = this.add.image(240, 320, 'shadow').setAlpha(0.45).setScale(1.2);
+          this.player = this.physics.add.sprite(240, 320, 'warrior_idle').setCollideWorldBounds(true).setSize(40, 40).setOffset(76, 80).setDepth(300);
+          this.physics.add.collider(this.player, this.obstacles);
+          this.physics.add.overlap(this.player, this.escapePortal, () => { this.scene.start('MenuScene'); showMessage('Escaped back to the menu.'); });
           this.enemies = this.physics.add.group();
-          for (let i = 0; i < 3; i++) {
-            this.spawnGoblin();
-          }
+          for (let i = 0; i < 4; i++) this.spawnEnemy();
           this.physics.add.collider(this.enemies, this.obstacles);
-
-          this.controls = {
-            cursors: this.input.keyboard.createCursorKeys(),
-            space: this.input.keyboard.addKey(
-              Phaser.Input.Keyboard.KeyCodes.SPACE
-            ),
-            guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
-          };
-
-          this.player.on('animationcomplete-attack1', () => {
-            this.isAttacking = false;
-            this.hasDamagedThisSwing = false;
-            this.currentCombo = 2;
-          });
-          this.player.on('animationcomplete-attack2', () => {
-            this.isAttacking = false;
-            this.hasDamagedThisSwing = false;
-            this.currentCombo = 1;
-          });
-
-          this.physics.add.overlap(this.player, this.portalObj, () => {
-            showGlobalLog('Escaping back to the Safe Camp...', '#00ff00');
-            this.scene.start('SafeTown');
-          });
-
-          createGlobalUI(
-            this,
-            'THE WILDERNESS: Goblins are tracking you down! Slay them for massive XP or run back to the town gate!'
-          );
+          this.controls = { cursors: this.input.keyboard.createCursorKeys(), space: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE), guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C) };
+          this.player.on('animationcomplete-hero_attack1', () => { this.isAttacking = false; this.hasHit = false; this.currentCombo = 2; });
+          this.player.on('animationcomplete-hero_attack2', () => { this.isAttacking = false; this.hasHit = false; this.currentCombo = 1; });
+          createHUD(this);
+          currentAreaText.setText('Area: Wilds');
+          updateHUD('Wild enemies patrol and chase you. Defeat foes for loot.');
         }
-
-        spawnGoblin() {
-          let x = Phaser.Math.Between(480, 740);
-          let y = Phaser.Math.Between(150, 500);
-          let goblin = this.enemies.create(x, y, 'enemy_run');
-          goblin.setTint(0x2d8a2d);
-          goblin.setSize(40, 40).setOffset(76, 80);
-          goblin.play('enemy_run');
-          goblin.health = 3;
-          goblin.speed = Phaser.Math.Between(75, 110);
-          goblin.lastAttackTime = 0;
+        spawnEnemy() {
+          const enemyType = Phaser.Utils.Array.GetRandom(ENEMY_TYPES);
+          const enemy = this.enemies.create(Phaser.Math.Between(460, 760), Phaser.Math.Between(140, 500), 'enemy_run');
+          enemy.setTint(enemyType.tint);
+          enemy.originalTint = enemyType.tint;
+          enemy.setSize(40, 40).setOffset(76, 80);
+          enemy.health = enemyType.health;
+          enemy.maxHealth = enemyType.health;
+          enemy.damage = enemyType.damage;
+          enemy.speed = enemyType.speed;
+          enemy.range = enemyType.range;
+          enemy.goldMin = enemyType.goldMin;
+          enemy.goldMax = enemyType.goldMax;
+          enemy.material = enemyType.material;
+          enemy.enemyType = enemyType.id;
+          enemy.lastAttack = 0;
+          enemy.play('enemy_run');
+          return enemy;
         }
-
-        update(time, delta) {
-          // Foe Trackers AI processing
-          this.enemies.getChildren().forEach((goblin) => {
-            let distance = Phaser.Math.Distance.Between(
-              goblin.x,
-              goblin.y,
-              this.player.x,
-              this.player.y
-            );
-            if (distance < 350) {
-              this.physics.moveToObject(goblin, this.player, goblin.speed);
-              goblin.setFlipX(goblin.body.velocity.x < 0);
-
-              if (distance < 45 && time > goblin.lastAttackTime + 1600) {
-                goblin.lastAttackTime = time;
-                if (this.isGuarding) {
-                  showGlobalLog(
-                    'DEFLECTED! Your shield absorbed the damage safely.',
-                    '#00ccff'
-                  );
-                } else {
-                  globalPlayerData.health -= 20;
-                  if (globalPlayerData.health < 0) globalPlayerData.health = 0;
-                  updateGlobalHUD();
-                  showGlobalLog(
-                    'WARNING! Hit by goblin fighter (-20 HP)!',
-                    '#ff3333'
-                  );
-                }
+        update(time) {
+          this.enemies.getChildren().forEach((enemy) => {
+            const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, this.player.x, this.player.y);
+            if (distance < 260) {
+              this.physics.moveToObject(enemy, this.player, enemy.speed);
+              enemy.setFlipX(enemy.body.velocity.x < 0);
+              if (distance < enemy.range + 10 && time > enemy.lastAttack + 1200) {
+                enemy.lastAttack = time;
+                if (this.isGuarding) { showMessage('You blocked the attack!', '#88ddff'); }
+                else { saveData.currentHealth = Math.max(0, saveData.currentHealth - enemy.damage); saveGame(); updateHUD(); showMessage(`Hit by ${enemy.enemyType}! -${enemy.damage} HP`, '#ff6666'); }
               }
-            } else {
-              goblin.setVelocity(0);
-            }
+            } else { enemy.setVelocity(0); }
           });
-
-          handlePlayerInputAndCombat(
-            this,
-            this.player,
-            this.playerShadow,
-            this.controls,
-            this.enemies.getChildren(),
-            (goblin) => {
-              goblin.health -= 1;
-              goblin.setTint(0xff3333);
-              this.time.delayedCall(150, () => {
-                if (goblin.active) goblin.setTint(0x2d8a2d);
-              });
-
-              showGlobalLog(
-                `Struck enemy! Target Vital Signs: ${goblin.health}/3`,
-                '#ffffff'
-              );
-
-              if (goblin.health <= 0) {
-                goblin.destroy();
-                processXPGain(15, this);
-                showGlobalLog(
-                  'MONSTER DEFEATED! Gained +15 Weapon XP.',
-                  '#00ff00'
-                );
-                this.spawnGoblin();
-              }
+          handlePlayerInput(this, this.enemies.getChildren(), (enemy) => {
+            if (!enemy.active) return;
+            enemy.health -= 1;
+            if (enemy.health <= 0) {
+              const goldGain = Phaser.Math.Between(enemy.goldMin, enemy.goldMax);
+              saveData.gold += goldGain;
+              saveData.inventory.materials[enemy.material] = (saveData.inventory.materials[enemy.material] || 0) + 1;
+              awardMasteryXP(10);
+              saveData.currentHealth = Math.min(saveData.currentHealth + 2, saveData.maxHealth);
+              saveGame();
+              showMessage(`Defeated ${enemy.enemyType}! +${goldGain} gold.`);
+              enemy.destroy();
+              this.spawnEnemy();
+              updateHUD();
+              return;
             }
-          );
+            enemy.setTint(0xff3333);
+            this.time.delayedCall(120, () => { if (enemy.active) enemy.setTint(enemy.originalTint); });
+          });
+          if (saveData.currentHealth <= 0) { showMessage('You were defeated. Return to town to recover.', '#ff4444'); this.player.setTint(0xff3333); this.player.setVelocity(0); }
+          this.player.setDepth(this.player.y);
         }
       }
 
@@ -699,13 +441,14 @@
         type: Phaser.AUTO,
         width: 832,
         height: 640,
-        physics: {
-          default: 'arcade',
-          arcade: { gravity: { y: 0 }, debug: false },
-        },
-        scene: [SafeTown, BattleWorld],
+        physics: { default: 'arcade', arcade: { gravity: { y: 0 }, debug: false } },
+        scene: [BootScene, MenuScene, TrainingScene, TownScene, WildsScene],
       };
-      const game = new Phaser.Game(config);
+
+      window.addEventListener('load', () => {
+        saveData = loadSaveData();
+        new Phaser.Game(config);
+      });
     </script>
   </body>
 </html>

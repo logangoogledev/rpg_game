@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <title>Weapon Ascension - Tiny Swords World Engine</title>
+    <link rel="icon" href="UI Elements/UI Elements/Icons/Icon_01.png" />
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <style>
       body {
@@ -263,23 +264,31 @@
         }
 
         preload() {
-          this.load.spritesheet('warrior_idle', 'Blue Units/Warrior/Warrior_Idle.png', {
+          this.load.spritesheet('warrior_idle', 'Yellow Units/Warrior/Warrior_Idle.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_run', 'Blue Units/Warrior/Warrior_Run.png', {
+          this.load.spritesheet('warrior_run', 'Yellow Units/Warrior/Warrior_Run.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_attack1', 'Blue Units/Warrior/Warrior_Attack1.png', {
+          this.load.spritesheet('warrior_attack1', 'Yellow Units/Warrior/Warrior_Attack1.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_attack2', 'Blue Units/Warrior/Warrior_Attack2.png', {
+          this.load.spritesheet('warrior_attack2', 'Yellow Units/Warrior/Warrior_Attack2.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_guard', 'Blue Units/Warrior/Warrior_Guard.png', {
+          this.load.spritesheet('warrior_guard', 'Yellow Units/Warrior/Warrior_Guard.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('enemy_run', 'Red Units/Warrior/Warrior_Run.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('enemy_idle', 'Red Units/Warrior/Warrior_Idle.png', {
             frameWidth: 192,
             frameHeight: 192,
           });

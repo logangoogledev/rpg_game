@@ -35,7 +35,7 @@
       function createGlobalAnims(scene) {
         if (animsCreated) return;
         scene.anims.create({
-          key: 'idle',
+          key: 'hero_idle',
           frames: scene.anims.generateFrameNumbers('warrior_idle', {
             start: 0,
             end: 5,
@@ -44,7 +44,7 @@
           repeat: -1,
         });
         scene.anims.create({
-          key: 'run',
+          key: 'hero_run',
           frames: scene.anims.generateFrameNumbers('warrior_run', {
             start: 0,
             end: 5,
@@ -53,7 +53,7 @@
           repeat: -1,
         });
         scene.anims.create({
-          key: 'attack1',
+          key: 'hero_attack1',
           frames: scene.anims.generateFrameNumbers('warrior_attack1', {
             start: 0,
             end: 5,
@@ -62,7 +62,7 @@
           repeat: 0,
         });
         scene.anims.create({
-          key: 'attack2',
+          key: 'hero_attack2',
           frames: scene.anims.generateFrameNumbers('warrior_attack2', {
             start: 0,
             end: 3,
@@ -71,10 +71,28 @@
           repeat: 0,
         });
         scene.anims.create({
-          key: 'guard',
+          key: 'hero_guard',
           frames: scene.anims.generateFrameNumbers('warrior_guard', {
             start: 0,
             end: 2,
+          }),
+          frameRate: 8,
+          repeat: -1,
+        });
+        scene.anims.create({
+          key: 'enemy_run',
+          frames: scene.anims.generateFrameNumbers('enemy_run', {
+            start: 0,
+            end: 5,
+          }),
+          frameRate: 12,
+          repeat: -1,
+        });
+        scene.anims.create({
+          key: 'enemy_idle',
+          frames: scene.anims.generateFrameNumbers('enemy_idle', {
+            start: 0,
+            end: 5,
           }),
           frameRate: 8,
           repeat: -1,
@@ -153,7 +171,7 @@
 
         if (controls.guard.isDown && !scene.isAttacking) {
           scene.isGuarding = true;
-          player.play('guard', true);
+          player.play('hero_guard', true);
           currentSpeed = globalPlayerData.baseSpeed * 0.35;
         } else {
           scene.isGuarding = false;
@@ -190,7 +208,7 @@
         ) {
           scene.isAttacking = true;
           player.setVelocity(0);
-          player.play(`attack${scene.currentCombo}`, true);
+          player.play(`hero_attack${scene.currentCombo}`, true);
           return;
         }
 
@@ -213,8 +231,8 @@
         }
 
         if (!scene.isGuarding) {
-          if (moving) player.play('run', true);
-          else player.play('idle', true);
+          if (moving) player.play('hero_run', true);
+          else player.play('hero_idle', true);
         }
       }
 
@@ -245,31 +263,40 @@
         }
 
         preload() {
-          this.load.spritesheet('warrior_idle', 'Warrior_Idle.png', {
+          this.load.spritesheet('warrior_idle', 'Blue Units/Warrior/Warrior_Idle.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_run', 'Warrior_Run.png', {
+          this.load.spritesheet('warrior_run', 'Blue Units/Warrior/Warrior_Run.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_attack1', 'Warrior_Attack1.png', {
+          this.load.spritesheet('warrior_attack1', 'Blue Units/Warrior/Warrior_Attack1.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_attack2', 'Warrior_Attack2.png', {
+          this.load.spritesheet('warrior_attack2', 'Blue Units/Warrior/Warrior_Attack2.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
-          this.load.spritesheet('warrior_guard', 'Warrior_Guard.png', {
+          this.load.spritesheet('warrior_guard', 'Blue Units/Warrior/Warrior_Guard.png', {
             frameWidth: 192,
             frameHeight: 192,
           });
 
           // Load Tiny Swords pack sheets directly
-          this.load.image('water_bg', 'Water Background color.png');
-          this.load.image('tilemap_lush', 'Tilemap_color1.png');
-          this.load.image('shadow', 'Shadow.png');
+          this.load.image('water_bg', 'Terrain/Tileset/Water Background color.png');
+          this.load.image('tilemap_lush', 'Terrain/Tileset/Tilemap_color1.png');
+          this.load.image('shadow', 'Terrain/Tileset/Shadow.png');
+          this.load.image('camp_barracks', 'Buildings/Blue Buildings/Barracks.png');
+          this.load.image('camp_house1', 'Buildings/Blue Buildings/House1.png');
+          this.load.image('camp_castle', 'Buildings/Blue Buildings/Castle.png');
+          this.load.image('bush1', 'Terrain/Decorations/Bushes/Bushe1.png');
+          this.load.image('bush2', 'Terrain/Decorations/Bushes/Bushe2.png');
+          this.load.image('rock1', 'Terrain/Decorations/Rocks/Rock1.png');
+          this.load.image('tree1', 'Terrain/Resources/Wood/Trees/Tree1.png');
+          this.load.image('cloud1', 'Terrain/Decorations/Clouds/Clouds_01.png');
+          this.load.image('ui_banner', 'UI Elements/UI Elements/Banners/Banner.png');
         }
 
         create() {
@@ -281,6 +308,9 @@
 
           // Render Water Background
           this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+          this.add.image(130, 90, 'cloud1').setScrollFactor(0.2).setAlpha(0.75).setScale(0.85);
+          this.add.image(690, 80, 'cloud1').setScrollFactor(0.17).setAlpha(0.6).setFlipX(true).setScale(0.8);
+          this.add.image(420, 26, 'ui_banner').setScrollFactor(0).setDepth(198).setScale(0.7).setAlpha(0.9);
 
           // Render Lush Grass Island using exact pixel boundaries from Tilemap_color1
           for (let col = 1; col < 12; col++) {
@@ -293,6 +323,19 @@
               grass.setCrop(64, 64, 64, 64); // Crops out the perfect Tiny Swords middle grass patch
             }
           }
+          this.add.image(120, 130, 'camp_castle').setScale(0.5).setDepth(30);
+          this.add.image(720, 140, 'camp_barracks').setScale(0.55).setDepth(25);
+          this.add.image(680, 520, 'camp_house1').setScale(0.45).setDepth(28);
+          [
+            { x: 80, y: 380, key: 'bush1', scale: 0.65 },
+            { x: 760, y: 360, key: 'bush2', scale: 0.65 },
+            { x: 320, y: 210, key: 'tree1', scale: 0.7 },
+            { x: 515, y: 190, key: 'tree1', scale: 0.7 },
+            { x: 420, y: 520, key: 'rock1', scale: 0.95 },
+          ].forEach((item) => {
+            let deco = this.add.image(item.x, item.y, item.key).setScale(item.scale);
+            deco.setDepth(item.y * 0.15);
+          });
 
           // Environment Obstacles (Fences, Water bounds, and Trees)
           this.obstacles = this.physics.add.staticGroup();
@@ -446,7 +489,21 @@
 
         preload() {
           // Load an alternate seasonal biome sheet for the dangerous wildlands
-          this.load.image('tilemap_desert', 'Tilemap_color2.png');
+          this.load.image('tilemap_desert', 'Terrain/Tileset/Tilemap_color2.png');
+          this.load.image('water_bg', 'Terrain/Tileset/Water Background color.png');
+          this.load.image('cloud2', 'Terrain/Decorations/Clouds/Clouds_06.png');
+          this.load.image('rock2', 'Terrain/Decorations/Rocks/Rock2.png');
+          this.load.image('rock3', 'Terrain/Decorations/Rocks/Rock3.png');
+          this.load.image('bush1', 'Terrain/Decorations/Bushes/Bushe1.png');
+          this.load.image('ui_banner', 'UI Elements/UI Elements/Banners/Banner.png');
+          this.load.spritesheet('enemy_run', 'Red Units/Warrior/Warrior_Run.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('enemy_idle', 'Red Units/Warrior/Warrior_Idle.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
         }
 
         create() {
@@ -457,6 +514,8 @@
 
           // Render Red/Sand Desert Wilderness using Tilemap_color2 layout sheet
           this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+          this.add.image(620, 90, 'cloud2').setScrollFactor(0.18).setAlpha(0.55).setScale(0.85).setDepth(10);
+          this.add.image(160, 80, 'cloud2').setScrollFactor(0.22).setAlpha(0.6).setFlipX(true).setScale(0.74).setDepth(10);
           for (let col = 1; col < 12; col++) {
             for (let row = 1; row < 9; row++) {
               let ground = this.add.image(
@@ -467,6 +526,10 @@
               ground.setCrop(64, 64, 64, 64); // Pulls the base terrain layer
             }
           }
+          this.add.image(720, 520, 'rock2').setScale(0.75).setDepth(22);
+          this.add.image(520, 430, 'rock3').setScale(0.9).setDepth(24);
+          this.add.image(140, 420, 'bush1').setScale(0.7).setDepth(23);
+          this.add.image(420, 30, 'ui_banner').setScrollFactor(0).setDepth(198).setScale(0.65).setAlpha(0.85);
 
           this.obstacles = this.physics.add.staticGroup();
           this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
@@ -547,10 +610,10 @@
         spawnGoblin() {
           let x = Phaser.Math.Between(480, 740);
           let y = Phaser.Math.Between(150, 500);
-          let goblin = this.enemies.create(x, y, 'warrior_run');
+          let goblin = this.enemies.create(x, y, 'enemy_run');
           goblin.setTint(0x2d8a2d);
           goblin.setSize(40, 40).setOffset(76, 80);
-          goblin.play('run');
+          goblin.play('enemy_run');
           goblin.health = 3;
           goblin.speed = Phaser.Math.Between(75, 110);
           goblin.lastAttackTime = 0;

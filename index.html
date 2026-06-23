@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Weapon Ascension - Tiny Swords World Engine</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        background-color: #111;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+        font-family: 'Courier New', Courier, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      // --- GLOBAL PERSISTENT PROGRESSION ---
+      const globalPlayerData = {
+        health: 200,
+        maxHealth: 200,
+        weaponLevel: 1,
+        weaponXP: 0,
+        xpToNextLevel: 30,
+        baseSpeed: 220,
+        attackRange: 85,
+        dummyHits: 0,
+      };
+
+      let animsCreated = false;
+      function createGlobalAnims(scene) {
+        if (animsCreated) return;
+        scene.anims.create({
+          key: 'idle',
+          frames: scene.anims.generateFrameNumbers('warrior_idle', {
+            start: 0,
+            end: 5,
+          }),
+          frameRate: 10,
+          repeat: -1,
+        });
+        scene.anims.create({
+          key: 'run',
+          frames: scene.anims.generateFrameNumbers('warrior_run', {
+            start: 0,
+            end: 5,
+          }),
+          frameRate: 12,
+          repeat: -1,
+        });
+        scene.anims.create({
+          key: 'attack1',
+          frames: scene.anims.generateFrameNumbers('warrior_attack1', {
+            start: 0,
+            end: 5,
+          }),
+          frameRate: 16,
+          repeat: 0,
+        });
+        scene.anims.create({
+          key: 'attack2',
+          frames: scene.anims.generateFrameNumbers('warrior_attack2', {
+            start: 0,
+            end: 3,
+          }),
+          frameRate: 14,
+          repeat: 0,
+        });
+        scene.anims.create({
+          key: 'guard',
+          frames: scene.anims.generateFrameNumbers('warrior_guard', {
+            start: 0,
+            end: 2,
+          }),
+          frameRate: 8,
+          repeat: -1,
+        });
+        animsCreated = true;
+      }
+
+      let hudText;
+      let combatLogText;
+      function createGlobalUI(scene, infoMessage) {
+        hudText = scene.add
+          .text(25, 25, '', {
+            font: '16px Courier New',
+            fill: '#ffffff',
+            backgroundColor: '#000000bb',
+            padding: 8,
+          })
+          .setScrollFactor(0)
+          .setDepth(200);
+        combatLogText = scene.add
+          .text(25, 600, infoMessage, {
+            font: '14px Courier New',
+            fill: '#ffcc00',
+            backgroundColor: '#000000aa',
+            padding: 4,
+          })
+          .setScrollFactor(0)
+          .setDepth(200);
+        updateGlobalHUD();
+      }
+      function updateGlobalHUD() {
+        if (hudText) {
+          hudText.setText(
+            `HP: ${Math.floor(globalPlayerData.health)}/${
+              globalPlayerData.maxHealth
+            } | MASTERY LVL: ${globalPlayerData.weaponLevel} | XP: ${
+              globalPlayerData.weaponXP
+            }/${globalPlayerData.xpToNextLevel} | DUMMY HITS: ${
+              globalPlayerData.dummyHits
+            }`
+          );
+        }
+      }
+      function showGlobalLog(message, color = '#ffcc00') {
+        if (combatLogText) {
+          combatLogText.setText(message);
+          combatLogText.setFill(color);
+        }
+      }
+
+      // Global Core Input + Physics Engine Loop
+      function handlePlayerInputAndCombat(
+        scene,
+        player,
+        playerShadow,
+        controls,
+        targetObjects,
+        onHitCallback
+      ) {
+        if (globalPlayerData.health <= 0) {
+          player.setVelocity(0);
+          player.setTint(0xff3333);
+          playerShadow.setAlpha(0);
+          showGlobalLog(
+            'GAME OVER! Refresh your preview window to restart.',
+            '#ff0000'
+          );
+          return;
+        }
+
+        playerShadow.x = player.x;
+        playerShadow.y = player.y + 35;
+
+        let currentSpeed = globalPlayerData.baseSpeed;
+        player.setVelocity(0);
+
+        if (controls.guard.isDown && !scene.isAttacking) {
+          scene.isGuarding = true;
+          player.play('guard', true);
+          currentSpeed = globalPlayerData.baseSpeed * 0.35;
+        } else {
+          scene.isGuarding = false;
+        }
+
+        if (scene.isAttacking) {
+          if (!scene.hasDamagedThisSwing) {
+            targetObjects.forEach((obj) => {
+              if (!obj.active) return;
+              let dist = Phaser.Math.Distance.Between(
+                player.x,
+                player.y,
+                obj.x,
+                obj.y
+              );
+              if (dist < globalPlayerData.attackRange) {
+                let isToLeft = obj.x < player.x;
+                if (
+                  (player.flipX && isToLeft) ||
+                  (!player.flipX && !isToLeft)
+                ) {
+                  scene.hasDamagedThisSwing = true;
+                  onHitCallback(obj);
+                }
+              }
+            });
+          }
+          return;
+        }
+
+        if (
+          Phaser.Input.Keyboard.JustDown(controls.space) &&
+          !scene.isGuarding
+        ) {
+          scene.isAttacking = true;
+          player.setVelocity(0);
+          player.play(`attack${scene.currentCombo}`, true);
+          return;
+        }
+
+        let moving = false;
+        if (controls.cursors.left.isDown) {
+          player.setVelocityX(-currentSpeed);
+          player.setFlipX(true);
+          moving = true;
+        } else if (controls.cursors.right.isDown) {
+          player.setVelocityX(currentSpeed);
+          player.setFlipX(false);
+          moving = true;
+        }
+        if (controls.cursors.up.isDown) {
+          player.setVelocityY(-currentSpeed);
+          moving = true;
+        } else if (controls.cursors.down.isDown) {
+          player.setVelocityY(currentSpeed);
+          moving = true;
+        }
+
+        if (!scene.isGuarding) {
+          if (moving) player.play('run', true);
+          else player.play('idle', true);
+        }
+      }
+
+      function processXPGain(amount, scene) {
+        globalPlayerData.weaponXP += amount;
+        if (globalPlayerData.weaponXP >= globalPlayerData.xpToNextLevel) {
+          globalPlayerData.weaponXP -= globalPlayerData.xpToNextLevel;
+          globalPlayerData.weaponLevel++;
+          globalPlayerData.xpToNextLevel = Math.floor(
+            globalPlayerData.xpToNextLevel * 1.5
+          );
+          globalPlayerData.baseSpeed += 12;
+          globalPlayerData.attackRange += 8;
+          showGlobalLog(
+            `WEAPON ASCENSION! Level ${globalPlayerData.weaponLevel} Achieved! Speed/Range Buffed!`,
+            '#00ff00'
+          );
+        }
+        updateGlobalHUD();
+      }
+
+      // ==========================================
+      // --- SCENE 1: SAFE TOWN & TRAINING CAMP ---
+      // ==========================================
+      class SafeTown extends Phaser.Scene {
+        constructor() {
+          super('SafeTown');
+        }
+
+        preload() {
+          this.load.spritesheet('warrior_idle', 'Warrior_Idle.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('warrior_run', 'Warrior_Run.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('warrior_attack1', 'Warrior_Attack1.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('warrior_attack2', 'Warrior_Attack2.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+          this.load.spritesheet('warrior_guard', 'Warrior_Guard.png', {
+            frameWidth: 192,
+            frameHeight: 192,
+          });
+
+          // Load Tiny Swords pack sheets directly
+          this.load.image('water_bg', 'Water Background color.png');
+          this.load.image('tilemap_lush', 'Tilemap_color1.png');
+          this.load.image('shadow', 'Shadow.png');
+        }
+
+        create() {
+          this.isAttacking = false;
+          this.isGuarding = false;
+          this.hasDamagedThisSwing = false;
+          this.currentCombo = 1;
+          createGlobalAnims(this);
+
+          // Render Water Background
+          this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+
+          // Render Lush Grass Island using exact pixel boundaries from Tilemap_color1
+          for (let col = 1; col < 12; col++) {
+            for (let row = 1; row < 9; row++) {
+              let grass = this.add.image(
+                col * 64 + 32,
+                row * 64 + 32,
+                'tilemap_lush'
+              );
+              grass.setCrop(64, 64, 64, 64); // Crops out the perfect Tiny Swords middle grass patch
+            }
+          }
+
+          // Environment Obstacles (Fences, Water bounds, and Trees)
+          this.obstacles = this.physics.add.staticGroup();
+
+          // Edge Water Barriers
+          this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
+          this.obstacles.add(this.add.rectangle(416, 608, 832, 64));
+          this.obstacles.add(this.add.rectangle(32, 320, 64, 640));
+          this.obstacles.add(this.add.rectangle(800, 320, 64, 640));
+
+          // --- DECORATING WITH TINY SWORDS TREES & PROPS ---
+          // Tiny Swords assets bundle trees directly onto layout sheets. We stamp them out using crops!
+          const treePositions = [
+            { x: 120, y: 150 },
+            { x: 120, y: 480 },
+            { x: 720, y: 150 },
+            { x: 720, y: 480 },
+          ];
+          treePositions.forEach((pos) => {
+            let treeVisual = this.add
+              .image(pos.x, pos.y, 'tilemap_lush')
+              .setDepth(pos.y);
+            // Crops a standard large green tree cluster from Tilemap_color1
+            treeVisual.setCrop(0, 256, 128, 192);
+
+            // Add a solid physics hit box at the base of the trunk
+            let treeTrunkCollider = this.add.rectangle(
+              pos.x + 64,
+              pos.y + 150,
+              40,
+              40
+            );
+            this.obstacles.add(treeTrunkCollider);
+          });
+
+          // Mushroom Decor Stamps
+          for (let i = 0; i < 5; i++) {
+            let mushX = Phaser.Math.Between(200, 600);
+            let mushY = Phaser.Math.Between(150, 450);
+            let mush = this.add
+              .image(mushX, mushY, 'tilemap_lush')
+              .setCrop(320, 0, 64, 64)
+              .setScale(0.7);
+          }
+
+          // --- EXTRACTING THE ACTUAL PRACTICE DUMMY ---
+          // Tiny Swords places interactive props like signs and training targets towards the lower-right quadrant
+          this.dummyObj = this.physics.add.staticImage(
+            320,
+            320,
+            'tilemap_lush'
+          );
+          this.dummyObj.setCrop(320, 448, 64, 64); // Precision coordinate matching the Training Dummy in Tiny Swords pack!
+          this.dummyObj.setSize(44, 44).setOffset(10, 10);
+
+          // Teleportation Gate to Outside World
+          this.portalObj = this.physics.add.staticImage(
+            620,
+            320,
+            'tilemap_lush'
+          );
+          this.portalObj.setCrop(320, 320, 64, 64); // Crops out the golden chest/portal marker
+          this.physics.add.existing(this.portalObj, true);
+
+          // Player configuration
+          this.playerShadow = this.add
+            .image(220, 320, 'shadow')
+            .setAlpha(0.45)
+            .setScale(1.2);
+          this.player = this.physics.add.sprite(220, 320, 'warrior_idle');
+          this.player
+            .setCollideWorldBounds(true)
+            .setSize(40, 40)
+            .setOffset(76, 80)
+            .setDepth(320);
+
+          this.physics.add.collider(this.player, this.obstacles);
+
+          // Key Mappings
+          this.controls = {
+            cursors: this.input.keyboard.createCursorKeys(),
+            space: this.input.keyboard.addKey(
+              Phaser.Input.Keyboard.KeyCodes.SPACE
+            ),
+            guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
+          };
+
+          this.player.on('animationcomplete-attack1', () => {
+            this.isAttacking = false;
+            this.hasDamagedThisSwing = false;
+            this.currentCombo = 2;
+          });
+          this.player.on('animationcomplete-attack2', () => {
+            this.isAttacking = false;
+            this.hasDamagedThisSwing = false;
+            this.currentCombo = 1;
+          });
+
+          // Trigger scene transfer
+          this.physics.add.overlap(this.player, this.portalObj, () => {
+            showGlobalLog(
+              'Passing into the hazardous Outside Wilderness...',
+              '#ffcc00'
+            );
+            this.scene.start('BattleWorld');
+          });
+
+          createGlobalUI(
+            this,
+            'SAFE TRAINING GROUND: Practice your sword slashes on the Tiny Swords Dummy! Enter the golden floor marker to venture out.'
+          );
+        }
+
+        update(time, delta) {
+          // Safe Zone Passive Rest Healing
+          if (globalPlayerData.health < globalPlayerData.maxHealth) {
+            globalPlayerData.health += 0.08;
+            updateGlobalHUD();
+          }
+
+          // Dynamically adjust player and tree rendering depths so the character walks behind leaves naturally!
+          this.player.setDepth(this.player.y);
+
+          handlePlayerInputAndCombat(
+            this,
+            this.player,
+            this.playerShadow,
+            this.controls,
+            [this.dummyObj],
+            (dummy) => {
+              globalPlayerData.dummyHits++;
+              processXPGain(2, this);
+              showGlobalLog(
+                `HIT! Practicing weapon loops (+2 XP). Total Dummy Hits: ${globalPlayerData.dummyHits}`,
+                '#ffffff'
+              );
+              this.dummyObj.setTint(0xff8888);
+              this.time.delayedCall(120, () => this.dummyObj.clearTint());
+            }
+          );
+        }
+      }
+
+      // ==========================================
+      // --- SCENE 2: OUTSIDE WORLD (BATTLE) -----
+      // ==========================================
+      class BattleWorld extends Phaser.Scene {
+        constructor() {
+          super('BattleWorld');
+        }
+
+        preload() {
+          // Load an alternate seasonal biome sheet for the dangerous wildlands
+          this.load.image('tilemap_desert', 'Tilemap_color2.png');
+        }
+
+        create() {
+          this.isAttacking = false;
+          this.isGuarding = false;
+          this.hasDamagedThisSwing = false;
+          this.currentCombo = 1;
+
+          // Render Red/Sand Desert Wilderness using Tilemap_color2 layout sheet
+          this.add.tileSprite(416, 320, 832, 640, 'water_bg');
+          for (let col = 1; col < 12; col++) {
+            for (let row = 1; row < 9; row++) {
+              let ground = this.add.image(
+                col * 64 + 32,
+                row * 64 + 32,
+                'tilemap_desert'
+              );
+              ground.setCrop(64, 64, 64, 64); // Pulls the base terrain layer
+            }
+          }
+
+          this.obstacles = this.physics.add.staticGroup();
+          this.obstacles.add(this.add.rectangle(416, 32, 832, 64));
+          this.obstacles.add(this.add.rectangle(416, 608, 832, 64));
+          this.obstacles.add(this.add.rectangle(32, 320, 64, 640));
+          this.obstacles.add(this.add.rectangle(800, 320, 64, 640));
+
+          // Wilderness Dead Rocks and Scenery Obstacles
+          for (let i = 0; i < 4; i++) {
+            let rockX = Phaser.Math.Between(200, 650);
+            let rockY = Phaser.Math.Between(150, 480);
+            let rock = this.add
+              .image(rockX, rockY, 'tilemap_desert')
+              .setCrop(320, 256, 64, 64);
+
+            let rockCollider = this.add.rectangle(rockX, rockY + 10, 45, 35);
+            this.obstacles.add(rockCollider);
+          }
+
+          // Escape Gateway back to Town
+          this.portalObj = this.physics.add.staticImage(
+            150,
+            320,
+            'tilemap_desert'
+          );
+          this.portalObj.setCrop(320, 320, 64, 64);
+          this.physics.add.existing(this.portalObj, true);
+
+          // Character Spawning
+          this.playerShadow = this.add
+            .image(240, 320, 'shadow')
+            .setAlpha(0.45)
+            .setScale(1.2);
+          this.player = this.physics.add.sprite(240, 320, 'warrior_idle');
+          this.player
+            .setCollideWorldBounds(true)
+            .setSize(40, 40)
+            .setOffset(76, 80);
+          this.physics.add.collider(this.player, this.obstacles);
+
+          // Enemy System Setup
+          this.enemies = this.physics.add.group();
+          for (let i = 0; i < 3; i++) {
+            this.spawnGoblin();
+          }
+          this.physics.add.collider(this.enemies, this.obstacles);
+
+          this.controls = {
+            cursors: this.input.keyboard.createCursorKeys(),
+            space: this.input.keyboard.addKey(
+              Phaser.Input.Keyboard.KeyCodes.SPACE
+            ),
+            guard: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.C),
+          };
+
+          this.player.on('animationcomplete-attack1', () => {
+            this.isAttacking = false;
+            this.hasDamagedThisSwing = false;
+            this.currentCombo = 2;
+          });
+          this.player.on('animationcomplete-attack2', () => {
+            this.isAttacking = false;
+            this.hasDamagedThisSwing = false;
+            this.currentCombo = 1;
+          });
+
+          this.physics.add.overlap(this.player, this.portalObj, () => {
+            showGlobalLog('Escaping back to the Safe Camp...', '#00ff00');
+            this.scene.start('SafeTown');
+          });
+
+          createGlobalUI(
+            this,
+            'THE WILDERNESS: Goblins are tracking you down! Slay them for massive XP or run back to the town gate!'
+          );
+        }
+
+        spawnGoblin() {
+          let x = Phaser.Math.Between(480, 740);
+          let y = Phaser.Math.Between(150, 500);
+          let goblin = this.enemies.create(x, y, 'warrior_run');
+          goblin.setTint(0x2d8a2d);
+          goblin.setSize(40, 40).setOffset(76, 80);
+          goblin.play('run');
+          goblin.health = 3;
+          goblin.speed = Phaser.Math.Between(75, 110);
+          goblin.lastAttackTime = 0;
+        }
+
+        update(time, delta) {
+          // Foe Trackers AI processing
+          this.enemies.getChildren().forEach((goblin) => {
+            let distance = Phaser.Math.Distance.Between(
+              goblin.x,
+              goblin.y,
+              this.player.x,
+              this.player.y
+            );
+            if (distance < 350) {
+              this.physics.moveToObject(goblin, this.player, goblin.speed);
+              goblin.setFlipX(goblin.body.velocity.x < 0);
+
+              if (distance < 45 && time > goblin.lastAttackTime + 1600) {
+                goblin.lastAttackTime = time;
+                if (this.isGuarding) {
+                  showGlobalLog(
+                    'DEFLECTED! Your shield absorbed the damage safely.',
+                    '#00ccff'
+                  );
+                } else {
+                  globalPlayerData.health -= 20;
+                  if (globalPlayerData.health < 0) globalPlayerData.health = 0;
+                  updateGlobalHUD();
+                  showGlobalLog(
+                    'WARNING! Hit by goblin fighter (-20 HP)!',
+                    '#ff3333'
+                  );
+                }
+              }
+            } else {
+              goblin.setVelocity(0);
+            }
+          });
+
+          handlePlayerInputAndCombat(
+            this,
+            this.player,
+            this.playerShadow,
+            this.controls,
+            this.enemies.getChildren(),
+            (goblin) => {
+              goblin.health -= 1;
+              goblin.setTint(0xff3333);
+              this.time.delayedCall(150, () => {
+                if (goblin.active) goblin.setTint(0x2d8a2d);
+              });
+
+              showGlobalLog(
+                `Struck enemy! Target Vital Signs: ${goblin.health}/3`,
+                '#ffffff'
+              );
+
+              if (goblin.health <= 0) {
+                goblin.destroy();
+                processXPGain(15, this);
+                showGlobalLog(
+                  'MONSTER DEFEATED! Gained +15 Weapon XP.',
+                  '#00ff00'
+                );
+                this.spawnGoblin();
+              }
+            }
+          );
+        }
+      }
+
+      const config = {
+        type: Phaser.AUTO,
+        width: 832,
+        height: 640,
+        physics: {
+          default: 'arcade',
+          arcade: { gravity: { y: 0 }, debug: false },
+        },
+        scene: [SafeTown, BattleWorld],
+      };
+      const game = new Phaser.Game(config);
+    </script>
+  </body>
+</html>
